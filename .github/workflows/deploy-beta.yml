@@ -1,0 +1,52 @@
+# Beta preview deployment for charliezong18/happy.
+# Manually dispatched with any branch/sha from the fork; builds and
+# publishes to https://charliezong18.github.io/happy-beta/
+# The production deploy (charlie-main -> /happy/) lives in the fork
+# repo and is untouched by this.
+name: Deploy beta preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or sha in charliezong18/happy to preview"
+        required: true
+        default: "charlie-main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: charliezong18/happy
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Same gate as production: expo export strips types without checking
+      # them, so a type error would only surface as a runtime crash.
+      - name: Typecheck (gate - nothing is published if this fails)
+        run: pnpm --filter happy-app typecheck
+      - name: Export web build
+        working-directory: packages/happy-app
+        run: EXPO_WEB_BASE_URL=/happy-beta npx expo export --platform web
+      - name: Add Pages helpers (.nojekyll + SPA 404 fallback)
+        run: |
+          touch packages/happy-app/dist/.nojekyll
+          cp packages/happy-app/dist/index.html packages/happy-app/dist/404.html
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: packages/happy-app/dist
+          force_orphan: true
